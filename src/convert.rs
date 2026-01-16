@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rust_xlsxwriter::{Format, Workbook, Worksheet};
 use rusqlite::{Connection, types::Value, OpenFlags};
-use std::{collections::HashSet, fmt::Write, path::Path, time::Instant};
+use std::{collections::HashSet, fmt::Write, io::IsTerminal, path::Path, time::Instant};
 
 use crate::{discover_tables, sanitize_sheet_name, TableInfo};
 
@@ -230,6 +230,8 @@ pub struct ConvertOptions {
     pub blob_handling: BlobHandling,
     /// Whether to write column headers
     pub write_headers: bool,
+    /// Suppress all output except errors
+    pub quiet: bool,
 }
 
 impl Default for ConvertOptions {
@@ -239,6 +241,7 @@ impl Default for ConvertOptions {
             exclude: None,
             blob_handling: BlobHandling::default(),
             write_headers: true,
+            quiet: false,
         }
     }
 }
@@ -315,8 +318,18 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
     let mut total_rows = 0;
     let mut used_sheet_names = HashSet::new();
 
+    // Determine if we should show progress bars
+    let is_tty = std::io::stdout().is_terminal();
+    let show_progress = is_tty && !options.quiet;
+
     // 4. For each table (sorted alphabetically)
     for table_info in tables {
+        // Get row count for progress decision
+        let sql_count = format!("SELECT COUNT(*) FROM [{}]", table_info.name.replace("'", "''"));
+        let row_count_estimate: i64 = conn.query_row(&sql_count, [], |row| row.get(0))
+            .unwrap_or(0);
+        let is_large_table = row_count_estimate > 1000;
+
         // a. Sanitize name using sanitize_sheet_name()
         let sheet_name = sanitize_sheet_name(&table_info.name, &mut used_sheet_names);
 
@@ -342,6 +355,20 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         let mut row_count: usize = 0;
         let header_offset = if options.write_headers { 1 } else { 0 };
 
+        // Create progress bar for large tables if TTY and not quiet
+        let progress = if show_progress && is_large_table {
+            use indicatif::ProgressBar;
+            let pb = ProgressBar::new(row_count_estimate as u64);
+            pb.set_style(indicatif::ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] [{bar:20.cyan/blue}] {pos}/{len} ({percent}%)")
+                .map_err(|e| anyhow::anyhow!("Failed to set progress style: {}", e))?
+                .progress_chars("=>-"));
+            pb.set_message(format!("Exporting {}", table_info.name));
+            Some(pb)
+        } else {
+            None
+        };
+
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             let row_idx = (row_count + header_offset) as u32;
@@ -352,7 +379,23 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
                     .map_err(|e| anyhow::anyhow!("Failed to write cell at row {}, col {}: {}", row_idx, col_idx, e))?;
             }
             row_count += 1;
+
+            // Update progress bar
+            if let Some(ref pb) = progress {
+                pb.inc(1);
+            }
         }
+
+        // Finish progress bar
+        if let Some(pb) = progress {
+            pb.finish();
+        }
+
+        // Print status for small tables if not quiet
+        if !options.quiet && !is_large_table {
+            println!("Exported: {} ({} rows)", table_info.name, row_count);
+        }
+
         total_rows += row_count;
         exported_count += 1;
     }
@@ -360,6 +403,16 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
     // 5. Save workbook
     workbook.save(output_path)
         .map_err(|e| anyhow::anyhow!("Failed to save workbook to '{}': {}", output_path.display(), e))?;
+
+    // Print final summary if not quiet
+    if !options.quiet {
+        println!("✓ Exported {} tables ({} rows) to {} in {:.1}s",
+            exported_count,
+            total_rows,
+            output_path.display(),
+            start.elapsed().as_secs_f64()
+        );
+    }
 
     Ok(ConvertStats {
         tables_exported: exported_count,

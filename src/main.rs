@@ -30,6 +30,10 @@ pub struct Args {
     /// Don't write column headers
     #[arg(long)]
     pub no_headers: bool,
+
+    /// Suppress all output except errors
+    #[arg(long)]
+    pub quiet: bool,
 }
 
 /// Parse a string into a BlobHandling value
@@ -65,18 +69,11 @@ fn main() -> Result<()> {
         exclude: args.exclude,
         blob_handling: args.blob_mode,
         write_headers: !args.no_headers,
+        quiet: args.quiet,
     };
 
     // 4. Call convert()
-    let stats = convert(&args.input, &output_path, &options)?;
-
-    // 5. Print summary stats
-    println!("Conversion complete!");
-    println!("  Input:  {}", args.input.display());
-    println!("  Output: {}", output_path.display());
-    println!("  Tables exported: {}", stats.tables_exported);
-    println!("  Total rows: {}", stats.total_rows);
-    println!("  Duration: {:.2}s", stats.duration.as_secs_f64());
+    convert(&args.input, &output_path, &options)?;
 
     Ok(())
 }
