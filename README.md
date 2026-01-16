@@ -13,7 +13,7 @@ A fast, ergonomic command-line tool to convert SQLite databases into Excel sprea
 - 🎯 **Table filtering** - Include or exclude specific tables
 - 🖼️ **BLOB handling** - Multiple options for binary data (placeholder, hex, base64, skip)
 - 📋 **Flexible output** - Optional headers, quiet mode for scripting
-- ⚡ **Zero dependencies** - Single binary, no runtime dependencies
+- ⚡ **Statically linked** - Single binary, no runtime dependencies
 
 ## Installation
 
@@ -114,6 +114,14 @@ sqlite2xlsx mydata.db --quiet
 | `hex` | Hexadecimal representation |
 | `base64` | Base64-encoded string |
 | `skip` | Omits BLOB columns entirely |
+
+## Security
+
+The `--query` option executes arbitrary SQL against the database. While the database is opened in read-only mode (which prevents modifications), users should be aware that:
+
+- Custom queries can read any data in the database
+- Query execution time is unbounded (complex queries may run indefinitely)
+- Always validate queries from untrusted sources before execution
 
 ## License
 

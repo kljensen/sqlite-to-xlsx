@@ -1,0 +1,150 @@
+# Development container for Rust project with AI coding tools
+# Usage: docker build -f Dockerfile.dev -t sqlite2xlsx-dev .
+#        docker run -it --rm -v $(pwd):/workspace -w /workspace sqlite2xlsx-dev
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ==============================================================================
+# SYSTEM ESSENTIALS
+# ==============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    openssh-client \
+    socat \
+    procps \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# ==============================================================================
+# DEVELOPMENT UTILITIES
+# ==============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    jq \
+    less \
+    ripgrep \
+    sqlite3 \
+    tree \
+    unzip \
+    xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# ==============================================================================
+# BUILD ESSENTIALS (for Rust native dependencies)
+# ==============================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# ==============================================================================
+# GITHUB CLI
+# ==============================================================================
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ==============================================================================
+# DEV TOOLS (Helix, Just, yq, ast-grep, tealdeer, deliberate-thinking)
+# ==============================================================================
+RUN HELIX_VERSION="25.07.1" \
+    && JUST_VERSION="1.46.0" \
+    && YQ_VERSION="v4.44.6" \
+    && AST_GREP_VERSION="0.31.1" \
+    && TEALDEER_VERSION="v1.8.1" \
+    && DELIBERATE_VERSION="v0.2.0" \
+    && ARCH=$(dpkg --print-architecture) \
+    && if [ "$ARCH" = "arm64" ]; then \
+        HELIX_ARCH="aarch64"; \
+        JUST_ARCH="aarch64-unknown-linux-musl"; \
+        YQ_ARCH="arm64"; \
+        AST_GREP_ARCH="aarch64-unknown-linux-gnu"; \
+        TEALDEER_ARCH="aarch64-musl"; \
+        DELIBERATE_ARCH="aarch64-unknown-linux-musl"; \
+    else \
+        HELIX_ARCH="x86_64"; \
+        JUST_ARCH="x86_64-unknown-linux-musl"; \
+        YQ_ARCH="amd64"; \
+        AST_GREP_ARCH="x86_64-unknown-linux-gnu"; \
+        TEALDEER_ARCH="x86_64-musl"; \
+        DELIBERATE_ARCH="x86_64-unknown-linux-musl"; \
+    fi \
+    # Helix editor
+    && curl -fsSL "https://github.com/helix-editor/helix/releases/download/${HELIX_VERSION}/helix-${HELIX_VERSION}-${HELIX_ARCH}-linux.tar.xz" -o helix.tar.xz \
+    && tar -xJf helix.tar.xz \
+    && mv helix-${HELIX_VERSION}-${HELIX_ARCH}-linux /usr/local/helix \
+    && ln -s /usr/local/helix/hx /usr/local/bin/hx \
+    && rm helix.tar.xz \
+    # Just task runner
+    && curl -fsSL "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${JUST_ARCH}.tar.gz" -o just.tar.gz \
+    && tar -xzf just.tar.gz \
+    && mv just /usr/local/bin/just \
+    && chmod +x /usr/local/bin/just \
+    && rm just.tar.gz \
+    # yq YAML processor
+    && curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${YQ_ARCH}" -o /usr/local/bin/yq \
+    && chmod +x /usr/local/bin/yq \
+    # ast-grep
+    && curl -fsSL "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/app-${AST_GREP_ARCH}.zip" -o ast-grep.zip \
+    && unzip ast-grep.zip \
+    && mv sg /usr/local/bin/sg \
+    && chmod +x /usr/local/bin/sg \
+    && rm ast-grep.zip \
+    # tealdeer (tldr)
+    && curl -fsSL "https://github.com/tealdeer-rs/tealdeer/releases/download/${TEALDEER_VERSION}/tealdeer-linux-${TEALDEER_ARCH}" -o /usr/local/bin/tldr \
+    && chmod +x /usr/local/bin/tldr \
+    # deliberate-thinking MCP server
+    && curl -fsSL "https://github.com/kljensen/deliberate-thinking/releases/download/${DELIBERATE_VERSION}/deliberate-thinking-rust-${DELIBERATE_ARCH}.tar.xz" -o deliberate.tar.xz \
+    && tar -xJf deliberate.tar.xz \
+    && mv deliberate-thinking-rust-${DELIBERATE_ARCH}/deliberate-thinking-server /usr/local/bin/ \
+    && chmod +x /usr/local/bin/deliberate-thinking-server \
+    && rm -rf deliberate.tar.xz deliberate-thinking-rust-${DELIBERATE_ARCH}
+
+# ==============================================================================
+# NODE.JS & AI CODING AGENTS
+# ==============================================================================
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli opencode-ai \
+    && npm cache clean --force
+
+# ==============================================================================
+# RUST TOOLCHAIN (via rustup)
+# ==============================================================================
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH=/usr/local/cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && rustup component add rustfmt clippy rust-analyzer \
+    && cargo install cargo-watch cargo-edit cargo-outdated
+
+# ==============================================================================
+# USER SETUP
+# ==============================================================================
+ARG USERNAME=dev
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME \
+    && mkdir -p /home/$USERNAME/.config \
+    && chown -R $USER_UID:$USER_GID /home/$USERNAME
+
+WORKDIR /workspace
+USER $USERNAME
+
+# Update tldr database
+RUN tldr --update
+
+CMD ["/bin/bash"]

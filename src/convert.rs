@@ -6,9 +6,10 @@ use std::{collections::HashSet, fmt::Write, io::IsTerminal, path::Path, time::In
 use crate::{discover_tables, sanitize_sheet_name, TableInfo};
 
 /// Configuration for how BLOB values should be written to Excel cells
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlobHandling {
     /// Write a placeholder string like "[BLOB: 123 bytes]"
+    #[default]
     Placeholder,
     /// Write hexadecimal representation like "0x48656c6c6f"
     Hex,
@@ -16,12 +17,6 @@ pub enum BlobHandling {
     Base64,
     /// Write an empty cell (skip the BLOB value)
     Skip,
-}
-
-impl Default for BlobHandling {
-    fn default() -> Self {
-        BlobHandling::Placeholder
-    }
 }
 
 /// Maximum safe integer for f64 (2^53)
@@ -33,6 +28,9 @@ const MAX_STRING_LENGTH: usize = 32_767;
 
 /// Truncation suffix for overly long strings
 const TRUNCATION_SUFFIX: &str = "... [truncated]";
+
+/// Minimum row count for showing a progress bar during table export
+const PROGRESS_BAR_THRESHOLD: u64 = 1000;
 
 /// Converts a SQLite value and writes it to an Excel worksheet cell
 ///
@@ -92,7 +90,7 @@ fn write_integer(worksheet: &mut Worksheet, row: u32, col: u16, value: i64) -> R
             value, row, col
         );
         worksheet
-            .write_string(row, col, &value.to_string())
+            .write_string(row, col, value.to_string())
             .map_err(|e| anyhow::anyhow!(e))?;
     } else {
         worksheet
@@ -238,7 +236,7 @@ fn value_display_width(value: &Value, blob_handling: BlobHandling) -> usize {
             match blob_handling {
                 BlobHandling::Placeholder => format!("[BLOB: {} bytes]", b.len()).chars().count(),
                 BlobHandling::Hex => b.len() * 2 + 2, // "0x" + 2 chars per byte
-                BlobHandling::Base64 => base64_encode(b).chars().count(),
+                BlobHandling::Base64 => b.len().div_ceil(3) * 4, // Base64 formula: ceil(n/3) * 4
                 BlobHandling::Skip => 0,
             }
         }
@@ -312,6 +310,7 @@ pub struct ConvertStats {
 /// # Ok(())
 /// # }
 /// ```
+#[must_use = "conversion stats should be used or the result should be checked for errors"]
 pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) -> Result<ConvertStats> {
     let start = Instant::now();
 
@@ -358,7 +357,7 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         let sql_count = format!("SELECT COUNT(*) FROM [{}]", table_info.name.replace("'", "''"));
         let row_count_estimate: i64 = conn.query_row(&sql_count, [], |row| row.get(0))
             .unwrap_or(0);
-        let is_large_table = row_count_estimate > 1000;
+        let is_large_table = row_count_estimate > PROGRESS_BAR_THRESHOLD as i64;
 
         // a. Sanitize name using sanitize_sheet_name()
         let sheet_name = sanitize_sheet_name(&table_info.name, &mut used_sheet_names);
@@ -387,7 +386,6 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         let sql = format!("SELECT * FROM [{}]", table_info.name.replace("'", "''"));
         let mut stmt = conn.prepare(&sql)?;
 
-        let column_count = table_info.columns.len();
         let mut row_count: usize = 0;
         let header_offset = if options.write_headers { 1 } else { 0 };
 
@@ -409,13 +407,13 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         while let Some(row) = rows.next()? {
             let row_idx = (row_count + header_offset) as u32;
 
-            for col_idx in 0..column_count {
+            for (col_idx, col_width) in column_widths.iter_mut().enumerate() {
                 let value: Value = row.get(col_idx)?;
                 write_cell(worksheet, row_idx, col_idx as u16, &value, options.blob_handling)
                     .map_err(|e| anyhow::anyhow!("Failed to write cell at row {}, col {}: {}", row_idx, col_idx, e))?;
                 // Update column width
                 let width = value_display_width(&value, options.blob_handling);
-                column_widths[col_idx] = column_widths[col_idx].max(width);
+                *col_width = (*col_width).max(width);
             }
             row_count += 1;
 
@@ -533,13 +531,13 @@ pub fn query_to_sheet(
     // Write column headers if requested
     if options.write_headers {
         let bold_format = Format::new().set_bold();
-        for col in 0..column_count {
+        for (col, col_width) in column_widths.iter_mut().enumerate() {
             let column_name = stmt.column_name(col)
                 .unwrap_or("Column");
             worksheet.write_string_with_format(0, col as u16, column_name, &bold_format)
                 .map_err(|e| anyhow::anyhow!("Failed to write header for column {}: {}", col, e))?;
             // Track header width
-            column_widths[col] = column_name.chars().count();
+            *col_width = column_name.chars().count();
         }
     }
 
@@ -550,13 +548,13 @@ pub fn query_to_sheet(
     while let Some(row) = rows.next()? {
         let row_idx = (row_count + header_offset) as u32;
 
-        for col_idx in 0..column_count {
+        for (col_idx, col_width) in column_widths.iter_mut().enumerate() {
             let value: Value = row.get(col_idx)?;
             write_cell(worksheet, row_idx, col_idx as u16, &value, options.blob_handling)
                 .map_err(|e| anyhow::anyhow!("Failed to write cell at row {}, col {}: {}", row_idx, col_idx, e))?;
             // Update column width
             let width = value_display_width(&value, options.blob_handling);
-            column_widths[col_idx] = column_widths[col_idx].max(width);
+            *col_width = (*col_width).max(width);
         }
         row_count += 1;
     }

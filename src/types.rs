@@ -41,6 +41,7 @@ pub struct ColumnInfo {
 /// # Ok(())
 /// # }
 /// ```
+#[must_use = "discovered tables should be used or the result should be checked for errors"]
 pub fn discover_tables(conn: &Connection) -> Result<Vec<TableInfo>> {
     let mut tables = Vec::new();
 
@@ -92,14 +93,12 @@ fn get_table_columns(conn: &Connection, table_name: &str) -> Result<Vec<ColumnIn
         ))
     })?;
 
-    for column_row in column_rows {
-        if let Ok((name, sqlite_type, pk)) = column_row {
-            columns.push(ColumnInfo {
-                name,
-                sqlite_type,
-                is_primary_key: pk > 0,
-            });
-        }
+    for (name, sqlite_type, pk) in column_rows.flatten() {
+        columns.push(ColumnInfo {
+            name,
+            sqlite_type,
+            is_primary_key: pk > 0,
+        });
     }
 
     Ok(columns)

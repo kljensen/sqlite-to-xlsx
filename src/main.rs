@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use sqlite_to_xlsx::{convert, BlobHandling, ConvertOptions};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "sqlite2xlsx")]
@@ -85,7 +85,7 @@ fn main() {
 
     // 5. Build ConvertOptions from args
     let queries: Vec<(String, String)> = args.query.into_iter()
-        .zip(args.sheet.into_iter())
+        .zip(args.sheet)
         .collect();
 
     let options = ConvertOptions {
@@ -104,7 +104,7 @@ fn main() {
     }
 }
 
-fn print_error(error: &anyhow::Error, input_path: &PathBuf, requested_tables: &Option<Vec<String>>) {
+fn print_error(error: &anyhow::Error, input_path: &Path, requested_tables: &Option<Vec<String>>) {
     let error_msg = error.to_string();
 
     // Check for specific error patterns and provide friendly messages
