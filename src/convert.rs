@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rust_xlsxwriter::{Format, Workbook, Worksheet};
 use rusqlite::{Connection, types::Value, OpenFlags};
 use std::{collections::HashSet, fmt::Write, io::IsTerminal, path::Path, time::Instant};
@@ -288,7 +288,8 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
 
     // 1. Open SQLite database (read-only)
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let conn = Connection::open_with_flags(input_path, flags)?;
+    let conn = Connection::open_with_flags(input_path, flags)
+        .with_context(|| format!("Cannot open database: '{}'", input_path.display()))?;
 
     // 2. Create new Workbook
     let mut workbook = Workbook::new();
@@ -402,7 +403,7 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
 
     // 5. Save workbook
     workbook.save(output_path)
-        .map_err(|e| anyhow::anyhow!("Failed to save workbook to '{}': {}", output_path.display(), e))?;
+        .with_context(|| format!("Cannot write to output file: '{}'", output_path.display()))?;
 
     // Print final summary if not quiet
     if !options.quiet {
