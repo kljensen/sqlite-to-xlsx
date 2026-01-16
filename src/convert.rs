@@ -1,7 +1,9 @@
 use anyhow::Result;
-use rust_xlsxwriter::Worksheet;
-use rusqlite::types::Value;
-use std::fmt::Write;
+use rust_xlsxwriter::{Format, Workbook, Worksheet};
+use rusqlite::{Connection, types::Value, OpenFlags};
+use std::{collections::HashSet, fmt::Write, path::Path, time::Instant};
+
+use crate::{discover_tables, sanitize_sheet_name, TableInfo};
 
 /// Configuration for how BLOB values should be written to Excel cells
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,9 +219,153 @@ fn base64_encode(bytes: &[u8]) -> String {
     BASE64_STANDARD.encode(bytes)
 }
 
+/// Configuration options for the conversion process
+#[derive(Debug, Clone)]
+pub struct ConvertOptions {
+    /// Include only these tables (None means all tables)
+    pub tables: Option<Vec<String>>,
+    /// Exclude these tables (None means no exclusions)
+    pub exclude: Option<Vec<String>>,
+    /// How to handle BLOB values
+    pub blob_handling: BlobHandling,
+    /// Whether to write column headers
+    pub write_headers: bool,
+}
+
+impl Default for ConvertOptions {
+    fn default() -> Self {
+        ConvertOptions {
+            tables: None,
+            exclude: None,
+            blob_handling: BlobHandling::default(),
+            write_headers: true,
+        }
+    }
+}
+
+/// Statistics about the conversion process
+#[derive(Debug, Clone)]
+pub struct ConvertStats {
+    /// Number of tables successfully exported
+    pub tables_exported: usize,
+    /// Total number of rows written across all tables
+    pub total_rows: usize,
+    /// Time taken for the conversion
+    pub duration: std::time::Duration,
+}
+
 /// Converts SQLite database to XLSX format
-pub fn convert() -> Result<()> {
-    Ok(())
+///
+/// # Arguments
+/// * `input_path` - Path to the input SQLite database file
+/// * `output_path` - Path where the XLSX file will be written
+/// * `options` - Configuration options for the conversion
+///
+/// # Returns
+/// Statistics about the conversion process
+///
+/// # Examples
+/// ```no_run
+/// use sqlite_to_xlsx::{convert, ConvertOptions};
+/// use std::path::Path;
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let options = ConvertOptions::default();
+/// let stats = convert(
+///     Path::new("database.db"),
+///     Path::new("output.xlsx"),
+///     &options
+/// )?;
+/// println!("Exported {} tables with {} rows", stats.tables_exported, stats.total_rows);
+/// # Ok(())
+/// # }
+/// ```
+pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) -> Result<ConvertStats> {
+    let start = Instant::now();
+
+    // 1. Open SQLite database (read-only)
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = Connection::open_with_flags(input_path, flags)?;
+
+    // 2. Create new Workbook
+    let mut workbook = Workbook::new();
+
+    // 3. Discover all tables using discover_tables()
+    let mut tables = discover_tables(&conn)?;
+    tables.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Filter tables based on options
+    let tables: Vec<TableInfo> = if let Some(ref include) = options.tables {
+        tables.into_iter()
+            .filter(|t| include.contains(&t.name))
+            .collect()
+    } else {
+        tables
+    };
+
+    let tables: Vec<TableInfo> = if let Some(ref exclude) = options.exclude {
+        tables.into_iter()
+            .filter(|t| !exclude.contains(&t.name))
+            .collect()
+    } else {
+        tables
+    };
+
+    let mut exported_count = 0;
+    let mut total_rows = 0;
+    let mut used_sheet_names = HashSet::new();
+
+    // 4. For each table (sorted alphabetically)
+    for table_info in tables {
+        // a. Sanitize name using sanitize_sheet_name()
+        let sheet_name = sanitize_sheet_name(&table_info.name, &mut used_sheet_names);
+
+        // b. Create worksheet
+        let worksheet = workbook.add_worksheet().set_name(&sheet_name)
+            .map_err(|e| anyhow::anyhow!("Failed to create sheet '{}': {}", sheet_name, e))?;
+
+        // c. Write column headers (row 0) with bold format
+        if options.write_headers {
+            let bold_format = Format::new().set_bold();
+            for (col, column) in table_info.columns.iter().enumerate() {
+                worksheet.write_string_with_format(0, col as u16, &column.name, &bold_format)
+                    .map_err(|e| anyhow::anyhow!("Failed to write header for '{}': {}", column.name, e))?;
+            }
+        }
+
+        // d. SELECT * FROM table
+        // e. Stream rows using write_cell()
+        let sql = format!("SELECT * FROM [{}]", table_info.name.replace("'", "''"));
+        let mut stmt = conn.prepare(&sql)?;
+
+        let column_count = table_info.columns.len();
+        let mut row_count: usize = 0;
+        let header_offset = if options.write_headers { 1 } else { 0 };
+
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let row_idx = (row_count + header_offset) as u32;
+
+            for col_idx in 0..column_count {
+                let value: Value = row.get(col_idx)?;
+                write_cell(worksheet, row_idx, col_idx as u16, &value, options.blob_handling)
+                    .map_err(|e| anyhow::anyhow!("Failed to write cell at row {}, col {}: {}", row_idx, col_idx, e))?;
+            }
+            row_count += 1;
+        }
+        total_rows += row_count;
+        exported_count += 1;
+    }
+
+    // 5. Save workbook
+    workbook.save(output_path)
+        .map_err(|e| anyhow::anyhow!("Failed to save workbook to '{}': {}", output_path.display(), e))?;
+
+    Ok(ConvertStats {
+        tables_exported: exported_count,
+        total_rows,
+        duration: start.elapsed(),
+    })
 }
 
 #[cfg(test)]
@@ -541,5 +687,240 @@ mod tests {
             let result = write_cell(worksheet, 0, 0, &Value::Blob(blob.clone()), BlobHandling::Placeholder);
             assert!(result.is_ok(), "Failed for blob size {}: {}", blob.len(), result.unwrap_err());
         }
+    }
+
+    #[test]
+    fn test_convert_options_default() {
+        let options = ConvertOptions::default();
+        assert!(options.tables.is_none());
+        assert!(options.exclude.is_none());
+        assert_eq!(options.blob_handling, BlobHandling::Placeholder);
+        assert!(options.write_headers);
+    }
+
+    #[test]
+    fn test_convert_integration() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+
+        // Create a temporary directory
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        // Create a test SQLite database with multiple tables
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+
+        // Create users table
+        conn.execute(
+            "CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT,
+                age INTEGER,
+                balance REAL
+            )",
+            [],
+        ).expect("Failed to create users table");
+
+        conn.execute(
+            "INSERT INTO users (id, name, email, age, balance) VALUES
+                (1, 'Alice', 'alice@example.com', 30, 100.50),
+                (2, 'Bob', 'bob@example.com', 25, 75.25),
+                (3, 'Charlie', NULL, 35, 0.0)",
+            [],
+        ).expect("Failed to insert users");
+
+        // Create products table
+        conn.execute(
+            "CREATE TABLE products (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                price REAL
+            )",
+            [],
+        ).expect("Failed to create products table");
+
+        conn.execute(
+            "INSERT INTO products (id, name, price) VALUES
+                (1, 'Widget', 19.99),
+                (2, 'Gadget', 29.99)",
+            [],
+        ).expect("Failed to insert products");
+
+        // Drop the connection so the file is fully written
+        drop(conn);
+
+        // Convert the database
+        let options = ConvertOptions::default();
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert database");
+
+        // Verify stats
+        assert_eq!(stats.tables_exported, 2);
+        assert_eq!(stats.total_rows, 5); // 3 users + 2 products
+
+        // Verify output file exists
+        assert!(xlsx_path.exists(), "XLSX file should exist");
+    }
+
+    #[test]
+    fn test_convert_with_table_filter() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+
+        conn.execute(
+            "CREATE TABLE table_a (id INTEGER, value TEXT)",
+            [],
+        ).expect("Failed to create table_a");
+
+        conn.execute(
+            "CREATE TABLE table_b (id INTEGER, value TEXT)",
+            [],
+        ).expect("Failed to create table_b");
+
+        conn.execute(
+            "CREATE TABLE table_c (id INTEGER, value TEXT)",
+            [],
+        ).expect("Failed to create table_c");
+
+        conn.execute("INSERT INTO table_a VALUES (1, 'a')", []).expect("Failed to insert");
+        conn.execute("INSERT INTO table_b VALUES (2, 'b')", []).expect("Failed to insert");
+        conn.execute("INSERT INTO table_c VALUES (3, 'c')", []).expect("Failed to insert");
+
+        drop(conn);
+
+        // Only convert table_a and table_b
+        let options = ConvertOptions {
+            tables: Some(vec!["table_a".to_string(), "table_b".to_string()]),
+            ..Default::default()
+        };
+
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert database");
+
+        assert_eq!(stats.tables_exported, 2);
+        assert_eq!(stats.total_rows, 2);
+        assert!(xlsx_path.exists());
+    }
+
+    #[test]
+    fn test_convert_with_exclude() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+
+        conn.execute(
+            "CREATE TABLE keep_this (id INTEGER)",
+            [],
+        ).expect("Failed to create table");
+
+        conn.execute(
+            "CREATE TABLE skip_this (id INTEGER)",
+            [],
+        ).expect("Failed to create table");
+
+        conn.execute("INSERT INTO keep_this VALUES (1)", []).expect("Failed to insert");
+        conn.execute("INSERT INTO skip_this VALUES (2)", []).expect("Failed to insert");
+
+        drop(conn);
+
+        let options = ConvertOptions {
+            exclude: Some(vec!["skip_this".to_string()]),
+            ..Default::default()
+        };
+
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert database");
+
+        assert_eq!(stats.tables_exported, 1);
+        assert_eq!(stats.total_rows, 1);
+    }
+
+    #[test]
+    fn test_convert_without_headers() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+        conn.execute("CREATE TABLE test (id INTEGER, name TEXT)", []).expect("Failed to create table");
+        conn.execute("INSERT INTO test VALUES (1, 'Alice')", []).expect("Failed to insert");
+
+        drop(conn);
+
+        let options = ConvertOptions {
+            write_headers: false,
+            ..Default::default()
+        };
+
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert database");
+
+        assert_eq!(stats.tables_exported, 1);
+        assert_eq!(stats.total_rows, 1);
+    }
+
+    #[test]
+    fn test_convert_blob_handling() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+        conn.execute("CREATE TABLE blob_test (id INTEGER, data BLOB)", []).expect("Failed to create table");
+        conn.execute("INSERT INTO blob_test VALUES (1, x'48656c6c6f')", []).expect("Failed to insert");
+
+        drop(conn);
+
+        // Test with Skip mode
+        let options = ConvertOptions {
+            blob_handling: BlobHandling::Skip,
+            ..Default::default()
+        };
+
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert database");
+
+        assert_eq!(stats.tables_exported, 1);
+        assert_eq!(stats.total_rows, 1);
+    }
+
+    #[test]
+    fn test_convert_empty_database() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+        drop(conn);
+
+        let options = ConvertOptions::default();
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert empty database");
+
+        assert_eq!(stats.tables_exported, 0);
+        assert_eq!(stats.total_rows, 0);
+        assert!(xlsx_path.exists());
     }
 }
