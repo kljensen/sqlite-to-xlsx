@@ -257,7 +257,7 @@ fn test_large_text_values() {
     ).unwrap();
 
     // Create various large text strings
-    let large_strings = vec![
+    let large_strings = [
         "a".repeat(100),      // 100 chars
         "b".repeat(1_000),    // 1K chars
         "c".repeat(10_000),   // 10K chars

@@ -252,7 +252,7 @@ fn test_null_values_render_as_blank() {
     let conn = Connection::open(&db_path).expect("Failed to create database");
     conn.execute("CREATE TABLE null_test (id INTEGER, text_col TEXT, int_col INTEGER, real_col REAL)", []).unwrap();
     conn.execute("INSERT INTO null_test VALUES (1, NULL, NULL, NULL)", []).unwrap();
-    conn.execute("INSERT INTO null_test VALUES (2, 'not null', 42, 3.14)", []).unwrap();
+    conn.execute("INSERT INTO null_test VALUES (2, 'not null', 42, 1.5)", []).unwrap();
     drop(conn);
 
     convert(&db_path, &xlsx_path, &ConvertOptions::default())
@@ -275,7 +275,7 @@ fn test_null_values_render_as_blank() {
     assert_eq!(sheet.get((2, 0)), Some(&Data::Float(2.0)));
     assert_eq!(sheet.get((2, 1)), Some(&Data::String("not null".to_string())));
     assert_eq!(sheet.get((2, 2)), Some(&Data::Float(42.0)));
-    assert_eq!(sheet.get((2, 3)), Some(&Data::Float(3.14)));
+    assert_eq!(sheet.get((2, 3)), Some(&Data::Float(1.5)));
 }
 
 #[test]

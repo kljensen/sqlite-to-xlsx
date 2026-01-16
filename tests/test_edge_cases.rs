@@ -24,7 +24,7 @@ fn test_mixed_types_in_same_column() {
 
     // Insert different types in the same column
     conn.execute("INSERT INTO mixed_types VALUES (1, 42)", []).unwrap();           // INTEGER
-    conn.execute("INSERT INTO mixed_types VALUES (2, 3.14)", []).unwrap();         // REAL
+    conn.execute("INSERT INTO mixed_types VALUES (2, 1.5)", []).unwrap();         // REAL
     conn.execute("INSERT INTO mixed_types VALUES (3, 'hello')", []).unwrap();      // TEXT
     conn.execute("INSERT INTO mixed_types VALUES (4, NULL)", []).unwrap();         // NULL
     conn.execute("INSERT INTO mixed_types VALUES (5, x'48656c6c6f')", []).unwrap(); // BLOB
@@ -46,7 +46,7 @@ fn test_mixed_types_in_same_column() {
     assert_eq!(sheet.get((1, 1)), Some(&Data::Float(42.0)));
 
     // Row 2: REAL
-    assert_eq!(sheet.get((2, 1)), Some(&Data::Float(3.14)));
+    assert_eq!(sheet.get((2, 1)), Some(&Data::Float(1.5)));
 
     // Row 3: TEXT
     assert_eq!(sheet.get((3, 1)), Some(&Data::String("hello".to_string())));
@@ -115,7 +115,7 @@ fn test_string_with_quotes_and_newlines() {
         [],
     ).unwrap();
 
-    let special_strings = vec![
+    let special_strings = [
         "Line 1\nLine 2\nLine 3",           // Newlines
         "Text with \"quotes\" inside",       // Double quotes
         "Text with 'apostrophes' inside",    // Single quotes
@@ -181,7 +181,7 @@ fn test_very_long_column_names() {
     ).unwrap();
 
     conn.execute(
-        &format!("INSERT INTO long_cols VALUES (1, 42)"),
+        "INSERT INTO long_cols VALUES (1, 42)",
         [],
     ).unwrap();
 
@@ -486,7 +486,7 @@ fn test_integer_boundary_values() {
     ).unwrap();
 
     // Test various integer values
-    let test_values = vec![
+    let test_values = [
         0_i64,
         1,
         -1,

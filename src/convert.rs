@@ -84,7 +84,7 @@ pub fn write_cell(
 /// For large integers that exceed f64 precision (2^53), writes as string
 /// to preserve precision and logs a warning.
 fn write_integer(worksheet: &mut Worksheet, row: u32, col: u16, value: i64) -> Result<()> {
-    if value > MAX_SAFE_INTEGER || value < -MAX_SAFE_INTEGER {
+    if !(-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&value) {
         eprintln!(
             "Warning: Large integer {} at row {}, col {} exceeds f64 precision, writing as string",
             value, row, col
@@ -615,7 +615,7 @@ mod tests {
         let mut workbook = Workbook::new();
         let worksheet = workbook.add_worksheet();
 
-        let result = write_cell(worksheet, 0, 0, &Value::Real(3.14159), BlobHandling::default());
+        let result = write_cell(worksheet, 0, 0, &Value::Real(1.5), BlobHandling::default());
         assert!(result.is_ok());
 
         let result = write_cell(worksheet, 0, 1, &Value::Real(-2.5), BlobHandling::default());
@@ -781,10 +781,10 @@ mod tests {
         let mut workbook = Workbook::new();
         let worksheet = workbook.add_worksheet();
 
-        let values = vec![
+        let values = [
             Value::Null,
             Value::Integer(42),
-            Value::Real(3.14),
+            Value::Real(1.5),
             Value::Text("test".to_string()),
             Value::Blob(vec![1, 2, 3]),
         ];
@@ -798,16 +798,16 @@ mod tests {
     #[test]
     fn test_multiple_cells_same_column() {
         let mut workbook = Workbook::new();
-        let mut worksheet = workbook.add_worksheet();
+        let worksheet = workbook.add_worksheet();
 
-        let values = vec![
+        let values = [
             Value::Integer(1),
             Value::Integer(2),
             Value::Integer(3),
         ];
 
         for (row, value) in values.iter().enumerate() {
-            let result = write_cell(&mut worksheet, row as u32, 0, value, BlobHandling::default());
+            let result = write_cell(worksheet, row as u32, 0, value, BlobHandling::default());
             assert!(result.is_ok());
         }
     }
@@ -828,17 +828,17 @@ mod tests {
     #[test]
     fn test_special_float_values() {
         let mut workbook = Workbook::new();
-        let mut worksheet = workbook.add_worksheet();
+        let worksheet = workbook.add_worksheet();
 
         // Test positive and negative zero (should both work)
-        let result = write_cell(&mut worksheet, 0, 0, &Value::Real(0.0), BlobHandling::default());
+        let result = write_cell(worksheet, 0, 0, &Value::Real(0.0), BlobHandling::default());
         assert!(result.is_ok());
 
-        let result = write_cell(&mut worksheet, 0, 1, &Value::Real(-0.0), BlobHandling::default());
+        let result = write_cell(worksheet, 0, 1, &Value::Real(-0.0), BlobHandling::default());
         assert!(result.is_ok());
 
         // Test subnormal numbers
-        let result = write_cell(&mut worksheet, 0, 2, &Value::Real(1e-320), BlobHandling::default());
+        let result = write_cell(worksheet, 0, 2, &Value::Real(1e-320), BlobHandling::default());
         assert!(result.is_ok());
     }
 

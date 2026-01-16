@@ -23,7 +23,7 @@ fn test_basic_unicode_characters() {
     ).unwrap();
 
     // Insert various Unicode strings
-    let unicode_strings = vec![
+    let unicode_strings = [
         "Hello World",           // ASCII
         "こんにちは世界",           // Japanese (Hiragana + Kanji)
         "안녕하세요 세계",           // Korean
@@ -197,7 +197,7 @@ fn test_mixed_script_text() {
         [],
     ).unwrap();
 
-    let mixed_texts = vec![
+    let mixed_texts = [
         "Hello 世界 🌍",
         "日本語 English 日本語",
         "العربية English العربية",
@@ -255,7 +255,7 @@ fn test_unicode_special_characters() {
         [],
     ).unwrap();
 
-    let special_chars = vec![
+    let special_chars = [
         "© ® ™",                      // Copyright, registered, trademark
         "€ £ ¥ ¢ ₽",                   // Currency symbols
         "§ ¶ † ‡",                     // Section, paragraph, dagger

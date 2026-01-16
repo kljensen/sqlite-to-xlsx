@@ -50,19 +50,19 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../../sqlite2xlsx-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz sqlite2xlsx
+          tar czf ../../../../sqlite-to-xlsx-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz sqlite-to-xlsx
 
       - name: Prepare archive (Windows)
         if: runner.os == 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../..sqlite2xlsx-${{ github.ref_name }}-${{ matrix.arch }}.zip sqlite2xlsx.exe
+          7z a ../../../../sqlite-to-xlsx-${{ github.ref_name }}-${{ matrix.arch }}.zip sqlite-to-xlsx.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sqlite2xlsx-${{ matrix.arch }}
-          path: sqlite2xlsx-${{ github.ref_name }}-${{ matrix.arch }}.*
+          name: sqlite-to-xlsx-${{ matrix.arch }}
+          path: sqlite-to-xlsx-${{ github.ref_name }}-${{ matrix.arch }}.*
 
   release:
     name: Create GitHub Release
