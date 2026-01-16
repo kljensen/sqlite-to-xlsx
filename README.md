@@ -1,7 +1,7 @@
-# sqlite2xlsx
+# sqlite-to-xlsx
 
-[![CI](https://img.shields.io/github/actions/workflow/status/kljensen/sqlite2xlsx/ci.yml?branch=main&style=for-the-badge&logo=github)](https://github.com/kljensen/sqlite2xlsx/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/sqlite2xlsx?style=for-the-badge&logo=rust)](https://crates.io/crates/sqlite2xlsx)
+[![CI](https://img.shields.io/github/actions/workflow/status/kljensen/sqlite-to-xlsx/ci.yml?branch=main&style=for-the-badge&logo=github)](https://github.com/kljensen/sqlite-to-xlsx/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/sqlite-to-xlsx?style=for-the-badge&logo=rust)](https://crates.io/crates/sqlite-to-xlsx)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
 A fast, ergonomic command-line tool to convert SQLite databases into Excel spreadsheets.
@@ -20,27 +20,27 @@ A fast, ergonomic command-line tool to convert SQLite databases into Excel sprea
 ### From crates.io (recommended)
 
 ```bash
-cargo install sqlite2xlsx
+cargo install sqlite-to-xlsx
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/kljensen/sqlite2xlsx.git
-cd sqlite2xlsx
+git clone https://github.com/kljensen/sqlite-to-xlsx.git
+cd sqlite-to-xlsx
 cargo install --path .
 ```
 
 ### Pre-built binaries
 
-Download from the [Releases](https://github.com/kljensen/sqlite2xlsx/releases) page.
+Download from the [Releases](https://github.com/kljensen/sqlite-to-xlsx/releases) page.
 
 ## Quick Start
 
 Basic usage - convert an entire database:
 
 ```bash
-sqlite2xlsx mydata.db
+sqlite-to-xlsx mydata.db
 ```
 
 This creates `mydata.xlsx` with all tables as sheets.
@@ -48,7 +48,7 @@ This creates `mydata.xlsx` with all tables as sheets.
 Specify output file:
 
 ```bash
-sqlite2xlsx mydata.db -o report.xlsx
+sqlite-to-xlsx mydata.db -o report.xlsx
 ```
 
 ## Usage Examples
@@ -56,19 +56,19 @@ sqlite2xlsx mydata.db -o report.xlsx
 ### Export specific tables
 
 ```bash
-sqlite2xlsx mydata.db --tables users,orders,products
+sqlite-to-xlsx mydata.db --tables users,orders,products
 ```
 
 ### Exclude certain tables
 
 ```bash
-sqlite2xlsx mydata.db --exclude sqlite_sequence,temp_logs
+sqlite-to-xlsx mydata.db --exclude sqlite_sequence,temp_logs
 ```
 
 ### Custom SQL queries
 
 ```bash
-sqlite2xlsx mydata.db -q "SELECT * FROM users WHERE active=1" -s "Active Users" \
+sqlite-to-xlsx mydata.db -q "SELECT * FROM users WHERE active=1" -s "Active Users" \
                        -q "SELECT COUNT(*) as total FROM orders" -s "Order Count"
 ```
 
@@ -76,19 +76,19 @@ sqlite2xlsx mydata.db -q "SELECT * FROM users WHERE active=1" -s "Active Users" 
 
 ```bash
 # Show BLOBs as base64-encoded strings
-sqlite2xlsx mydata.db --blob-mode base64
+sqlite-to-xlsx mydata.db --blob-mode base64
 
 # Skip BLOB columns entirely
-sqlite2xlsx mydata.db --blob-mode skip
+sqlite-to-xlsx mydata.db --blob-mode skip
 
 # Show BLOBs as hexadecimal (default: placeholder text)
-sqlite2xlsx mydata.db --blob-mode hex
+sqlite-to-xlsx mydata.db --blob-mode hex
 ```
 
 ### Quiet mode for scripts
 
 ```bash
-sqlite2xlsx mydata.db --quiet
+sqlite-to-xlsx mydata.db --quiet
 ```
 
 ## CLI Options

@@ -4,7 +4,7 @@ use sqlite_to_xlsx::{convert, BlobHandling, ConvertOptions};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "sqlite2xlsx")]
+#[command(name = "sqlite-to-xlsx")]
 #[command(about = "Convert SQLite databases to Excel spreadsheets")]
 pub struct Args {
     /// Input SQLite database file
@@ -70,7 +70,7 @@ fn main() {
 
     // 3. Validate query/sheet arguments match
     if args.query.len() != args.sheet.len() {
-        eprintln!("Error: Number of --query arguments ({}) must match number of --sheet arguments ({})\n\nExample: sqlite2xlsx data.db --query 'SELECT * FROM users WHERE active=1' --sheet 'Active Users'", args.query.len(), args.sheet.len());
+        eprintln!("Error: Number of --query arguments ({}) must match number of --sheet arguments ({})\n\nExample: sqlite-to-xlsx data.db --query 'SELECT * FROM users WHERE active=1' --sheet 'Active Users'", args.query.len(), args.sheet.len());
         std::process::exit(1);
     }
 

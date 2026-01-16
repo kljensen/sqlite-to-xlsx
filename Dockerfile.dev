@@ -1,6 +1,6 @@
 # Development container for Rust project with AI coding tools
-# Usage: docker build -f Dockerfile.dev -t sqlite2xlsx-dev .
-#        docker run -it --rm -v $(pwd):/workspace -w /workspace sqlite2xlsx-dev
+# Usage: docker build -f Dockerfile.dev -t sqlite-to-xlsx-dev .
+#        docker run -it --rm -v $(pwd):/workspace -w /workspace sqlite-to-xlsx-dev
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
