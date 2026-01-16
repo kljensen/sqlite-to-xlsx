@@ -1,7 +1,7 @@
 # sqlite-to-xlsx
 
 [![CI](https://img.shields.io/github/actions/workflow/status/kljensen/sqlite-to-xlsx/ci.yml?branch=main&style=for-the-badge&logo=github)](https://github.com/kljensen/sqlite-to-xlsx/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/sqlite-to-xlsx?style=for-the-badge&logo=rust)](https://crates.io/crates/sqlite-to-xlsx)
+[![Release](https://img.shields.io/github/v/release/kljensen/sqlite-to-xlsx?style=for-the-badge&logo=github)](https://github.com/kljensen/sqlite-to-xlsx/releases)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg?style=for-the-badge)](LICENSE)
 
 A fast, ergonomic command-line tool to convert SQLite databases into Excel spreadsheets.
@@ -17,11 +17,39 @@ A fast, ergonomic command-line tool to convert SQLite databases into Excel sprea
 
 ## Installation
 
-### From crates.io (recommended)
+### Pre-built binaries (recommended)
 
+Download a binary for your platform from the [Releases](https://github.com/kljensen/sqlite-to-xlsx/releases) page.
+
+**Linux (x86_64, static musl build):**
 ```bash
-cargo install sqlite-to-xlsx
+curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-linux-x86_64-musl.tar.gz
+tar xzf sqlite-to-xlsx-v0.1.4-linux-x86_64-musl.tar.gz
+sudo mv sqlite-to-xlsx /usr/local/bin/
 ```
+
+**Linux (aarch64/ARM64, static musl build):**
+```bash
+curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-linux-aarch64-musl.tar.gz
+tar xzf sqlite-to-xlsx-v0.1.4-linux-aarch64-musl.tar.gz
+sudo mv sqlite-to-xlsx /usr/local/bin/
+```
+
+**macOS (Apple Silicon):**
+```bash
+curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-macos-aarch64.tar.gz
+tar xzf sqlite-to-xlsx-v0.1.4-macos-aarch64.tar.gz
+sudo mv sqlite-to-xlsx /usr/local/bin/
+```
+
+**macOS (Intel):**
+```bash
+curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-macos-x86_64.tar.gz
+tar xzf sqlite-to-xlsx-v0.1.4-macos-x86_64.tar.gz
+sudo mv sqlite-to-xlsx /usr/local/bin/
+```
+
+**Windows:** Download `sqlite-to-xlsx-v0.1.4-windows-x86_64.zip` from the releases page and extract to a directory in your PATH.
 
 ### From source
 
@@ -30,10 +58,6 @@ git clone https://github.com/kljensen/sqlite-to-xlsx.git
 cd sqlite-to-xlsx
 cargo install --path .
 ```
-
-### Pre-built binaries
-
-Download from the [Releases](https://github.com/kljensen/sqlite-to-xlsx/releases) page.
 
 ## Quick Start
 
