@@ -56,7 +56,7 @@ pub fn discover_tables(conn: &Connection) -> Result<Vec<TableInfo>> {
     let table_names = stmt.query_map([], |row| row.get(0))?;
 
     // Collect table names first to avoid statement lifetime issues
-    let table_names: Vec<String> = table_names.filter_map(|name| name.ok()).collect();
+    let table_names: Vec<String> = table_names.collect::<Result<Vec<_>, _>>()?;
 
     // Get column information for each table
     for table_name in table_names {

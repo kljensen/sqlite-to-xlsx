@@ -123,6 +123,10 @@ The `--query` option executes arbitrary SQL against the database. While the data
 - Query execution time is unbounded (complex queries may run indefinitely)
 - Always validate queries from untrusted sources before execution
 
+## Caveats
+
+- Table names must be simple identifiers (letters, numbers, underscores). Names that require SQL identifier quoting (like embedded quotes or brackets) are not supported.
+
 ## License
 
 MIT

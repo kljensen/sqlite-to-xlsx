@@ -133,7 +133,7 @@ fn test_empty_database_creates_valid_xlsx() {
 
     // Note: rust_xlsxwriter creates a workbook with at least one sheet by default
     // so we'll get an empty sheet, but no data tables were exported
-    let sheet_names = workbook.sheet_names();
+    let _sheet_names = workbook.sheet_names();
     // The sheet may be named "Sheet1" or similar default name
     // The key point is that we exported 0 tables
 }

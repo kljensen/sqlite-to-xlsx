@@ -84,7 +84,7 @@ pub fn write_cell(
 /// For large integers that exceed f64 precision (2^53), writes as string
 /// to preserve precision and logs a warning.
 fn write_integer(worksheet: &mut Worksheet, row: u32, col: u16, value: i64) -> Result<()> {
-    if value.abs() > MAX_SAFE_INTEGER {
+    if value > MAX_SAFE_INTEGER || value < -MAX_SAFE_INTEGER {
         eprintln!(
             "Warning: Large integer {} at row {}, col {} exceeds f64 precision, writing as string",
             value, row, col
@@ -132,10 +132,11 @@ fn write_real(worksheet: &mut Worksheet, row: u32, col: u16, value: f64) -> Resu
 /// Truncates strings that exceed Excel's maximum length (32,767 characters)
 /// and logs a warning.
 fn write_string(worksheet: &mut Worksheet, row: u32, col: u16, value: &str) -> Result<()> {
-    if value.len() > MAX_STRING_LENGTH {
+    let char_count = value.chars().count();
+    if char_count > MAX_STRING_LENGTH {
         eprintln!(
             "Warning: String at row {}, col {} exceeds Excel max length ({} chars), truncating",
-            row, col, value.len()
+            row, col, char_count
         );
         let truncated = truncate_string(value, MAX_STRING_LENGTH);
         worksheet
@@ -184,16 +185,18 @@ fn write_blob(
 /// Preserves room for the truncation suffix indicator.
 fn truncate_string(s: &str, max_len: usize) -> String {
     // If string fits within max_len, return it as-is
-    if s.len() <= max_len {
+    let char_count = s.chars().count();
+    if char_count <= max_len {
         return s.to_string();
     }
     // If max_len is too small for the suffix, return just the suffix
-    if max_len <= TRUNCATION_SUFFIX.len() {
+    let suffix_len = TRUNCATION_SUFFIX.chars().count();
+    if max_len <= suffix_len {
         return TRUNCATION_SUFFIX.to_string();
     }
     // Truncate the string and add suffix
-    let available = max_len - TRUNCATION_SUFFIX.len();
-    let mut result = String::with_capacity(max_len);
+    let available = max_len - suffix_len;
+    let mut result = String::with_capacity(s.len().min(max_len));
     for c in s.chars().take(available) {
         result.push(c);
     }

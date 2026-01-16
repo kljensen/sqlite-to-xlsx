@@ -55,15 +55,15 @@ pub fn sanitize_sheet_name(name: &str, existing: &mut HashSet<String>) -> String
     };
 
     // Step 5: Truncate to 31 chars, leaving room for _N suffix if needed
-    let base_name = if sanitized.len() > MAX_LENGTH {
+    let base_name = if sanitized.chars().count() > MAX_LENGTH {
         // Truncate to 28 chars to leave room for _99 suffix (28 + 3 = 31)
-        sanitized.chars().take(28).collect::<String>()
+        truncate_to_chars(&sanitized, 28)
     } else {
         sanitized
     };
 
     // Step 6: Ensure uniqueness by adding _1, _2, etc.
-    let final_name = make_unique(&base_name, existing);
+    let final_name = make_unique(&base_name, existing, MAX_LENGTH);
 
     // Step 7: Add to existing set
     existing.insert(final_name.clone());
@@ -79,7 +79,7 @@ pub fn sanitize_sheet_name(name: &str, existing: &mut HashSet<String>) -> String
 ///
 /// # Returns
 /// A unique name (either the base_name or base_name_N)
-fn make_unique(base_name: &str, existing: &HashSet<String>) -> String {
+fn make_unique(base_name: &str, existing: &HashSet<String>, max_length: usize) -> String {
     // If the name is not taken, use it as-is
     if !existing.contains(base_name) {
         return base_name.to_string();
@@ -88,7 +88,10 @@ fn make_unique(base_name: &str, existing: &HashSet<String>) -> String {
     // Try _1, _2, _3, etc. until we find an unused name
     let mut counter = 1;
     loop {
-        let candidate = format!("{}_{}", base_name, counter);
+        let suffix = format!("_{}", counter);
+        let base_max = max_length.saturating_sub(suffix.chars().count());
+        let trimmed_base = truncate_to_chars(base_name, base_max);
+        let candidate = format!("{}{}", trimmed_base, suffix);
         if !existing.contains(&candidate) {
             return candidate;
         }
@@ -97,7 +100,10 @@ fn make_unique(base_name: &str, existing: &HashSet<String>) -> String {
         // Safety check - prevent infinite loop in edge cases
         if counter > 10000 {
             // Generate a UUID-based name as fallback
-            return format!("{}_{}", base_name, uuid_counter());
+            let suffix = format!("_{}", uuid_counter());
+            let base_max = max_length.saturating_sub(suffix.chars().count());
+            let trimmed_base = truncate_to_chars(base_name, base_max);
+            return format!("{}{}", trimmed_base, suffix);
         }
     }
 }
@@ -107,6 +113,13 @@ fn uuid_counter() -> u32 {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(1);
     COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
+fn truncate_to_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    s.chars().take(max_chars).collect()
 }
 
 #[cfg(test)]
