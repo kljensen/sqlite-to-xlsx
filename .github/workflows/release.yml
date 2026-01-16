@@ -50,13 +50,13 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../../sqlite-to-xlsx-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz sqlite-to-xlsx
+          tar czf ../../../sqlite-to-xlsx-${{ github.ref_name }}-${{ matrix.arch }}.tar.gz sqlite-to-xlsx
 
       - name: Prepare archive (Windows)
         if: runner.os == 'Windows'
         run: |
           cd target/${{ matrix.target }}/release
-          7z a ../../../../sqlite-to-xlsx-${{ github.ref_name }}-${{ matrix.arch }}.zip sqlite-to-xlsx.exe
+          7z a ../../../sqlite-to-xlsx-${{ github.ref_name }}-${{ matrix.arch }}.zip sqlite-to-xlsx.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
