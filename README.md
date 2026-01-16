@@ -2,7 +2,7 @@
 
 [![CI](https://img.shields.io/github/actions/workflow/status/kljensen/sqlite-to-xlsx/ci.yml?branch=main&style=for-the-badge&logo=github)](https://github.com/kljensen/sqlite-to-xlsx/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/sqlite-to-xlsx?style=for-the-badge&logo=rust)](https://crates.io/crates/sqlite-to-xlsx)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/license-Unlicense-blue.svg?style=for-the-badge)](LICENSE)
 
 A fast, ergonomic command-line tool to convert SQLite databases into Excel spreadsheets.
 
@@ -129,4 +129,4 @@ The `--query` option executes arbitrary SQL against the database. While the data
 
 ## License
 
-MIT
+Unlicense
