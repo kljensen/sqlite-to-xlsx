@@ -34,6 +34,14 @@ pub struct Args {
     /// Suppress all output except errors
     #[arg(long)]
     pub quiet: bool,
+
+    /// Custom SQL query to execute and export to a named sheet
+    #[arg(short = 'q', long, num_args = 1)]
+    pub query: Vec<String>,
+
+    /// Sheet name for corresponding query (must match number of --query args)
+    #[arg(short = 's', long, num_args = 1)]
+    pub sheet: Vec<String>,
 }
 
 /// Parse a string into a BlobHandling value
@@ -60,7 +68,13 @@ fn main() {
         std::process::exit(1);
     }
 
-    // 3. Determine output path (default: input.xlsx)
+    // 3. Validate query/sheet arguments match
+    if args.query.len() != args.sheet.len() {
+        eprintln!("Error: Number of --query arguments ({}) must match number of --sheet arguments ({})\n\nExample: sqlite2xlsx data.db --query 'SELECT * FROM users WHERE active=1' --sheet 'Active Users'", args.query.len(), args.sheet.len());
+        std::process::exit(1);
+    }
+
+    // 4. Determine output path (default: input.xlsx)
     let output_path = if let Some(output) = args.output {
         output
     } else {
@@ -69,16 +83,21 @@ fn main() {
         output
     };
 
-    // 4. Build ConvertOptions from args
+    // 5. Build ConvertOptions from args
+    let queries: Vec<(String, String)> = args.query.into_iter()
+        .zip(args.sheet.into_iter())
+        .collect();
+
     let options = ConvertOptions {
         tables: args.tables.clone(),
         exclude: args.exclude,
         blob_handling: args.blob_mode,
         write_headers: !args.no_headers,
         quiet: args.quiet,
+        queries,
     };
 
-    // 5. Call convert() with error handling
+    // 6. Call convert() with error handling
     if let Err(e) = convert(&args.input, &output_path, &options) {
         print_error(&e, &args.input, &args.tables);
         std::process::exit(1);
@@ -95,6 +114,8 @@ fn print_error(error: &anyhow::Error, input_path: &PathBuf, requested_tables: &O
         eprintln!("Error: {}\n\nCheck directory permissions or try a different location.", error_msg);
     } else if error_msg.contains("No tables found") {
         eprintln!("Error: No tables found in database\n\nThe database may be empty or contain only views.");
+    } else if error_msg.contains("Query failed") || error_msg.contains("SQL error") {
+        eprintln!("Error: {}\n\nCheck your SQL syntax and ensure referenced tables exist.", error_msg);
     } else if let Some(ref tables) = requested_tables {
         if error_msg.contains("no such table") || error_msg.contains("does not exist") {
             // Extract the first available table name from the error if available

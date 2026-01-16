@@ -232,6 +232,8 @@ pub struct ConvertOptions {
     pub write_headers: bool,
     /// Suppress all output except errors
     pub quiet: bool,
+    /// Custom SQL queries with their target sheet names (query, sheet_name)
+    pub queries: Vec<(String, String)>,
 }
 
 impl Default for ConvertOptions {
@@ -242,6 +244,7 @@ impl Default for ConvertOptions {
             blob_handling: BlobHandling::default(),
             write_headers: true,
             quiet: false,
+            queries: Vec::new(),
         }
     }
 }
@@ -401,7 +404,28 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         exported_count += 1;
     }
 
-    // 5. Save workbook
+    // 5. Execute custom queries and export to named sheets
+    for (query, sheet_name) in &options.queries {
+        // Sanitize sheet name
+        let sanitized_name = sanitize_sheet_name(sheet_name, &mut used_sheet_names);
+
+        // Create worksheet
+        let worksheet = workbook.add_worksheet().set_name(&sanitized_name)
+            .map_err(|e| anyhow::anyhow!("Failed to create sheet '{}': {}", sanitized_name, e))?;
+
+        // Execute query and write to sheet
+        let query_rows = query_to_sheet(&conn, query, &sanitized_name, worksheet, options)
+            .with_context(|| format!("Failed to execute query for sheet '{}': {}", sanitized_name, query))?;
+
+        total_rows += query_rows;
+
+        // Print status if not quiet
+        if !options.quiet {
+            println!("Exported: {} ({} rows from query)", sanitized_name, query_rows);
+        }
+    }
+
+    // 6. Save workbook
     workbook.save(output_path)
         .with_context(|| format!("Cannot write to output file: '{}'", output_path.display()))?;
 
@@ -420,6 +444,66 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         total_rows,
         duration: start.elapsed(),
     })
+}
+
+/// Executes a custom SQL query and exports results to a named worksheet
+///
+/// # Arguments
+/// * `conn` - SQLite connection
+/// * `query` - SQL query string to execute
+/// * `sheet_name` - Name for the worksheet
+/// * `worksheet` - The Excel worksheet to write to
+/// * `options` - Conversion options
+///
+/// # Returns
+/// Number of rows written
+///
+/// # Errors
+/// Returns an error if:
+/// - The SQL query is invalid
+/// - The query execution fails
+/// - Writing to the worksheet fails
+pub fn query_to_sheet(
+    conn: &Connection,
+    query: &str,
+    sheet_name: &str,
+    worksheet: &mut Worksheet,
+    options: &ConvertOptions,
+) -> Result<usize> {
+    // Prepare and execute the query
+    let mut stmt = conn.prepare(query)
+        .with_context(|| format!("Query failed for sheet '{}': {}", sheet_name, query))?;
+
+    let column_count = stmt.column_count();
+    let mut row_count: usize = 0;
+
+    // Write column headers if requested
+    if options.write_headers {
+        let bold_format = Format::new().set_bold();
+        for col in 0..column_count {
+            let column_name = stmt.column_name(col)
+                .unwrap_or("Column");
+            worksheet.write_string_with_format(0, col as u16, column_name, &bold_format)
+                .map_err(|e| anyhow::anyhow!("Failed to write header for column {}: {}", col, e))?;
+        }
+    }
+
+    let header_offset = if options.write_headers { 1 } else { 0 };
+
+    // Stream rows using write_cell()
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let row_idx = (row_count + header_offset) as u32;
+
+        for col_idx in 0..column_count {
+            let value: Value = row.get(col_idx)?;
+            write_cell(worksheet, row_idx, col_idx as u16, &value, options.blob_handling)
+                .map_err(|e| anyhow::anyhow!("Failed to write cell at row {}, col {}: {}", row_idx, col_idx, e))?;
+        }
+        row_count += 1;
+    }
+
+    Ok(row_count)
 }
 
 #[cfg(test)]
