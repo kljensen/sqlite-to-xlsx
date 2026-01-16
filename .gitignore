@@ -2,6 +2,7 @@
 tmp
 .mcp.json
 zclaude.sh
+.env
 
 # Rust
 /target
