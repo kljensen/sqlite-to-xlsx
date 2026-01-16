@@ -23,33 +23,37 @@ Download a binary for your platform from the [Releases](https://github.com/kljen
 
 **Linux (x86_64, static musl build):**
 ```bash
-curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-linux-x86_64-musl.tar.gz
-tar xzf sqlite-to-xlsx-v0.1.4-linux-x86_64-musl.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/kljensen/sqlite-to-xlsx/releases/latest | grep tag_name | cut -d '"' -f 4)
+curl -LO "https://github.com/kljensen/sqlite-to-xlsx/releases/download/${VERSION}/sqlite-to-xlsx-${VERSION}-linux-x86_64-musl.tar.gz"
+tar xzf sqlite-to-xlsx-${VERSION}-linux-x86_64-musl.tar.gz
 sudo mv sqlite-to-xlsx /usr/local/bin/
 ```
 
 **Linux (aarch64/ARM64, static musl build):**
 ```bash
-curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-linux-aarch64-musl.tar.gz
-tar xzf sqlite-to-xlsx-v0.1.4-linux-aarch64-musl.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/kljensen/sqlite-to-xlsx/releases/latest | grep tag_name | cut -d '"' -f 4)
+curl -LO "https://github.com/kljensen/sqlite-to-xlsx/releases/download/${VERSION}/sqlite-to-xlsx-${VERSION}-linux-aarch64-musl.tar.gz"
+tar xzf sqlite-to-xlsx-${VERSION}-linux-aarch64-musl.tar.gz
 sudo mv sqlite-to-xlsx /usr/local/bin/
 ```
 
 **macOS (Apple Silicon):**
 ```bash
-curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-macos-aarch64.tar.gz
-tar xzf sqlite-to-xlsx-v0.1.4-macos-aarch64.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/kljensen/sqlite-to-xlsx/releases/latest | grep tag_name | cut -d '"' -f 4)
+curl -LO "https://github.com/kljensen/sqlite-to-xlsx/releases/download/${VERSION}/sqlite-to-xlsx-${VERSION}-macos-aarch64.tar.gz"
+tar xzf sqlite-to-xlsx-${VERSION}-macos-aarch64.tar.gz
 sudo mv sqlite-to-xlsx /usr/local/bin/
 ```
 
 **macOS (Intel):**
 ```bash
-curl -LO https://github.com/kljensen/sqlite-to-xlsx/releases/latest/download/sqlite-to-xlsx-v0.1.4-macos-x86_64.tar.gz
-tar xzf sqlite-to-xlsx-v0.1.4-macos-x86_64.tar.gz
+VERSION=$(curl -s https://api.github.com/repos/kljensen/sqlite-to-xlsx/releases/latest | grep tag_name | cut -d '"' -f 4)
+curl -LO "https://github.com/kljensen/sqlite-to-xlsx/releases/download/${VERSION}/sqlite-to-xlsx-${VERSION}-macos-x86_64.tar.gz"
+tar xzf sqlite-to-xlsx-${VERSION}-macos-x86_64.tar.gz
 sudo mv sqlite-to-xlsx /usr/local/bin/
 ```
 
-**Windows:** Download `sqlite-to-xlsx-v0.1.4-windows-x86_64.zip` from the releases page and extract to a directory in your PATH.
+**Windows:** Download the latest `sqlite-to-xlsx-*-windows-x86_64.zip` from the [releases page](https://github.com/kljensen/sqlite-to-xlsx/releases) and extract to a directory in your PATH.
 
 ### From source
 
