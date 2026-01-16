@@ -1,0 +1,13 @@
+[package]
+name = "sqlite-to-xlsx"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = ["."]
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+rust_xlsxwriter = "0.83"
+clap = { version = "4.5", features = ["derive"] }
+anyhow = "1.0"
