@@ -16,3 +16,4 @@ indicatif = "0.17"
 
 [dev-dependencies]
 tempfile = "3"
+calamine = "0.25"
