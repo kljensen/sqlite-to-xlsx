@@ -129,22 +129,26 @@ fn write_real(worksheet: &mut Worksheet, row: u32, col: u16, value: f64) -> Resu
 
 /// Writes a string value to a worksheet cell
 ///
-/// Truncates strings that exceed Excel's maximum length (32,767 characters)
+/// Sanitizes strings that contain binary data or control characters,
+/// then truncates if they exceed Excel's maximum length (32,767 characters)
 /// and logs a warning.
 fn write_string(worksheet: &mut Worksheet, row: u32, col: u16, value: &str) -> Result<()> {
-    let char_count = value.chars().count();
+    // Sanitize the string first to handle binary data stored as text
+    let sanitized = sanitize_string(value);
+    let char_count = sanitized.chars().count();
+
     if char_count > MAX_STRING_LENGTH {
         eprintln!(
             "Warning: String at row {}, col {} exceeds Excel max length ({} chars), truncating",
             row, col, char_count
         );
-        let truncated = truncate_string(value, MAX_STRING_LENGTH);
+        let truncated = truncate_string(&sanitized, MAX_STRING_LENGTH);
         worksheet
             .write_string(row, col, &truncated)
             .map_err(|e| anyhow::anyhow!(e))?;
     } else {
         worksheet
-            .write_string(row, col, value)
+            .write_string(row, col, &sanitized)
             .map_err(|e| anyhow::anyhow!(e))?;
     }
     Ok(())
@@ -178,6 +182,44 @@ fn write_blob(
         }
     }
     Ok(())
+}
+
+/// Sanitizes a string for Excel compatibility
+///
+/// Handles binary data stored as text by:
+/// - Replacing the Unicode replacement character (U+FFFD) with a placeholder
+/// - Removing null bytes and other control characters (except tab, newline, carriage return)
+/// - Detecting binary content (like PDF data) and replacing with a placeholder
+fn sanitize_string(s: &str) -> String {
+    // Check for common binary file signatures stored as text
+    if s.starts_with("%PDF") || s.starts_with("\x00") || s.starts_with("PK\x03\x04") {
+        return format!("[Binary data: {} bytes]", s.len());
+    }
+
+    // Count replacement characters - high count indicates binary data
+    let replacement_count = s.chars().filter(|&c| c == '\u{FFFD}').count();
+    if replacement_count > s.chars().count() / 10 {
+        // More than 10% replacement chars suggests binary data
+        return format!("[Binary data: {} bytes]", s.len());
+    }
+
+    // Sanitize: keep printable chars, tabs, newlines, carriage returns
+    let sanitized: String = s
+        .chars()
+        .map(|c| {
+            if c == '\u{FFFD}' {
+                '?' // Replace Unicode replacement char
+            } else if c == '\t' || c == '\n' || c == '\r' {
+                c // Keep whitespace
+            } else if c.is_control() {
+                ' ' // Replace other control chars with space
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    sanitized
 }
 
 /// Truncates a string to fit within the maximum length
@@ -253,6 +295,9 @@ pub struct ConvertOptions {
     pub tables: Option<Vec<String>>,
     /// Exclude these tables (None means no exclusions)
     pub exclude: Option<Vec<String>>,
+    /// Exclude specific columns (None means no exclusions)
+    /// Format: "column" for all tables, "table.column" for specific table
+    pub exclude_columns: Option<Vec<String>>,
     /// How to handle BLOB values
     pub blob_handling: BlobHandling,
     /// Whether to write column headers
@@ -268,12 +313,43 @@ impl Default for ConvertOptions {
         ConvertOptions {
             tables: None,
             exclude: None,
+            exclude_columns: None,
             blob_handling: BlobHandling::default(),
             write_headers: true,
             quiet: false,
             queries: Vec::new(),
         }
     }
+}
+
+/// Checks if a column should be excluded based on the exclusion list
+///
+/// Supports two formats:
+/// - "column_name" - matches column in any table (case-insensitive)
+/// - "table.column" - matches column only in specific table (case-insensitive)
+fn should_exclude_column(table_name: &str, column_name: &str, exclusions: &Option<Vec<String>>) -> bool {
+    let Some(ref excludes) = exclusions else {
+        return false;
+    };
+
+    let table_lower = table_name.to_lowercase();
+    let column_lower = column_name.to_lowercase();
+
+    for pattern in excludes {
+        let pattern_lower = pattern.to_lowercase();
+        if let Some((tbl, col)) = pattern_lower.split_once('.') {
+            // table.column format - match specific table
+            if tbl == table_lower && col == column_lower {
+                return true;
+            }
+        } else {
+            // column only - match in any table
+            if pattern_lower == column_lower {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Statistics about the conversion process
@@ -356,6 +432,19 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
 
     // 4. For each table (sorted alphabetically)
     for table_info in tables {
+        // Filter columns based on exclusion list
+        let columns: Vec<_> = table_info.columns.iter()
+            .filter(|col| !should_exclude_column(&table_info.name, &col.name, &options.exclude_columns))
+            .collect();
+
+        // Skip table if all columns are excluded
+        if columns.is_empty() {
+            if !options.quiet {
+                eprintln!("Warning: All columns excluded from table '{}', skipping", table_info.name);
+            }
+            continue;
+        }
+
         // Get row count for progress decision
         let sql_count = format!("SELECT COUNT(*) FROM [{}]", table_info.name.replace("'", "''"));
         let row_count_estimate: i64 = conn.query_row(&sql_count, [], |row| row.get(0))
@@ -370,13 +459,13 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
             .map_err(|e| anyhow::anyhow!("Failed to create sheet '{}': {}", sheet_name, e))?;
 
         // Track column widths for auto-fit
-        let num_columns = table_info.columns.len();
+        let num_columns = columns.len();
         let mut column_widths: Vec<usize> = vec![0; num_columns];
 
         // c. Write column headers (row 0) with bold format
         if options.write_headers {
             let bold_format = Format::new().set_bold();
-            for (col, column) in table_info.columns.iter().enumerate() {
+            for (col, column) in columns.iter().enumerate() {
                 worksheet.write_string_with_format(0, col as u16, &column.name, &bold_format)
                     .map_err(|e| anyhow::anyhow!("Failed to write header for '{}': {}", column.name, e))?;
                 // Track header width
@@ -384,9 +473,13 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
             }
         }
 
-        // d. SELECT * FROM table
+        // d. Build SELECT with specific columns (to handle exclusions)
         // e. Stream rows using write_cell()
-        let sql = format!("SELECT * FROM [{}]", table_info.name.replace("'", "''"));
+        let column_list: String = columns.iter()
+            .map(|c| format!("[{}]", c.name.replace("]", "]]")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("SELECT {} FROM [{}]", column_list, table_info.name.replace("'", "''"));
         let mut stmt = conn.prepare(&sql)?;
 
         let mut row_count: usize = 0;
@@ -765,6 +858,58 @@ mod tests {
     }
 
     #[test]
+    fn test_sanitize_string_normal_text() {
+        // Normal text should pass through unchanged
+        let normal = "Hello, World!";
+        assert_eq!(sanitize_string(normal), normal);
+
+        // Text with tabs and newlines should be preserved
+        let with_whitespace = "Line 1\tcolumn\nLine 2";
+        assert_eq!(sanitize_string(with_whitespace), with_whitespace);
+    }
+
+    #[test]
+    fn test_sanitize_string_pdf_detection() {
+        // PDF-like content should be replaced with placeholder
+        let pdf = "%PDF-1.7 some binary content here";
+        let sanitized = sanitize_string(pdf);
+        assert!(sanitized.starts_with("[Binary data:"));
+        assert!(sanitized.ends_with("bytes]"));
+    }
+
+    #[test]
+    fn test_sanitize_string_null_byte_detection() {
+        // Content starting with null byte should be detected as binary
+        let with_null = "\x00Some binary data";
+        let sanitized = sanitize_string(with_null);
+        assert!(sanitized.starts_with("[Binary data:"));
+    }
+
+    #[test]
+    fn test_sanitize_string_control_chars() {
+        // Control characters (except \t, \n, \r) should be replaced with space
+        let with_control = "Hello\x01World\x02Test";
+        let sanitized = sanitize_string(with_control);
+        assert_eq!(sanitized, "Hello World Test");
+    }
+
+    #[test]
+    fn test_sanitize_string_replacement_char() {
+        // Unicode replacement character should be replaced with ?
+        let with_replacement = "Hello\u{FFFD}World";
+        let sanitized = sanitize_string(with_replacement);
+        assert_eq!(sanitized, "Hello?World");
+    }
+
+    #[test]
+    fn test_sanitize_string_high_replacement_ratio() {
+        // String with >10% replacement chars should be treated as binary
+        let mostly_invalid = "\u{FFFD}\u{FFFD}ab\u{FFFD}";
+        let sanitized = sanitize_string(mostly_invalid);
+        assert!(sanitized.starts_with("[Binary data:"));
+    }
+
+    #[test]
     fn test_blob_handling_equality() {
         assert_eq!(BlobHandling::Placeholder, BlobHandling::Placeholder);
         assert_eq!(BlobHandling::Hex, BlobHandling::Hex);
@@ -774,6 +919,57 @@ mod tests {
         assert_ne!(BlobHandling::Placeholder, BlobHandling::Hex);
         assert_ne!(BlobHandling::Hex, BlobHandling::Base64);
         assert_ne!(BlobHandling::Base64, BlobHandling::Skip);
+    }
+
+    #[test]
+    fn test_should_exclude_column_none() {
+        // No exclusions - should never exclude
+        assert!(!should_exclude_column("users", "email", &None));
+        assert!(!should_exclude_column("products", "price", &None));
+    }
+
+    #[test]
+    fn test_should_exclude_column_by_name() {
+        // Column name only - matches any table
+        let excludes = Some(vec!["password".to_string()]);
+        assert!(should_exclude_column("users", "password", &excludes));
+        assert!(should_exclude_column("admins", "password", &excludes));
+        assert!(!should_exclude_column("users", "email", &excludes));
+    }
+
+    #[test]
+    fn test_should_exclude_column_by_table_column() {
+        // table.column - matches only specific table
+        let excludes = Some(vec!["users.password".to_string()]);
+        assert!(should_exclude_column("users", "password", &excludes));
+        assert!(!should_exclude_column("admins", "password", &excludes));
+        assert!(!should_exclude_column("users", "email", &excludes));
+    }
+
+    #[test]
+    fn test_should_exclude_column_case_insensitive() {
+        // Should be case-insensitive
+        let excludes = Some(vec!["PASSWORD".to_string(), "Users.Email".to_string()]);
+        assert!(should_exclude_column("users", "password", &excludes));
+        assert!(should_exclude_column("USERS", "PASSWORD", &excludes));
+        assert!(should_exclude_column("users", "email", &excludes));
+        assert!(should_exclude_column("Users", "EMAIL", &excludes));
+    }
+
+    #[test]
+    fn test_should_exclude_column_multiple() {
+        // Multiple exclusions
+        let excludes = Some(vec![
+            "password".to_string(),
+            "users.secret".to_string(),
+            "products.internal_code".to_string(),
+        ]);
+        assert!(should_exclude_column("users", "password", &excludes));
+        assert!(should_exclude_column("products", "password", &excludes));
+        assert!(should_exclude_column("users", "secret", &excludes));
+        assert!(!should_exclude_column("products", "secret", &excludes));
+        assert!(should_exclude_column("products", "internal_code", &excludes));
+        assert!(!should_exclude_column("users", "internal_code", &excludes));
     }
 
     #[test]
@@ -1119,5 +1315,116 @@ mod tests {
         assert_eq!(stats.tables_exported, 0);
         assert_eq!(stats.total_rows, 0);
         assert!(xlsx_path.exists());
+    }
+
+    #[test]
+    fn test_convert_with_column_exclusion() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+        use calamine::{Reader, open_workbook, Xlsx, DataType};
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+
+        conn.execute(
+            "CREATE TABLE users (id INTEGER, name TEXT, password TEXT, email TEXT)",
+            [],
+        ).expect("Failed to create users table");
+
+        conn.execute(
+            "CREATE TABLE admins (id INTEGER, name TEXT, password TEXT)",
+            [],
+        ).expect("Failed to create admins table");
+
+        conn.execute("INSERT INTO users VALUES (1, 'Alice', 'secret123', 'alice@example.com')", [])
+            .expect("Failed to insert");
+        conn.execute("INSERT INTO admins VALUES (1, 'Admin', 'admin456')", [])
+            .expect("Failed to insert");
+
+        drop(conn);
+
+        // Exclude 'password' from all tables
+        let options = ConvertOptions {
+            exclude_columns: Some(vec!["password".to_string()]),
+            ..Default::default()
+        };
+
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert database");
+
+        assert_eq!(stats.tables_exported, 2);
+
+        // Verify the exported Excel doesn't have the password column
+        let mut workbook: Xlsx<_> = open_workbook(&xlsx_path).expect("Failed to open xlsx");
+
+        // Check users sheet - should have id, name, email (no password)
+        let users_range = workbook.worksheet_range("users").expect("Failed to get users sheet");
+        let headers: Vec<String> = users_range.rows().next().unwrap()
+            .iter().filter_map(|c| c.get_string().map(String::from)).collect();
+        assert_eq!(headers, vec!["id", "name", "email"]);
+        assert!(!headers.contains(&"password".to_string()));
+
+        // Check admins sheet - should have id, name (no password)
+        let admins_range = workbook.worksheet_range("admins").expect("Failed to get admins sheet");
+        let headers: Vec<String> = admins_range.rows().next().unwrap()
+            .iter().filter_map(|c| c.get_string().map(String::from)).collect();
+        assert_eq!(headers, vec!["id", "name"]);
+        assert!(!headers.contains(&"password".to_string()));
+    }
+
+    #[test]
+    fn test_convert_with_table_specific_column_exclusion() {
+        use tempfile::TempDir;
+        use rusqlite::Connection;
+        use calamine::{Reader, open_workbook, Xlsx, DataType};
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let db_path = temp_dir.path().join("test.db");
+        let xlsx_path = temp_dir.path().join("test.xlsx");
+
+        let conn = Connection::open(&db_path).expect("Failed to create database");
+
+        conn.execute(
+            "CREATE TABLE users (id INTEGER, secret TEXT)",
+            [],
+        ).expect("Failed to create users table");
+
+        conn.execute(
+            "CREATE TABLE products (id INTEGER, secret TEXT)",
+            [],
+        ).expect("Failed to create products table");
+
+        conn.execute("INSERT INTO users VALUES (1, 'user_secret')", []).expect("Failed to insert");
+        conn.execute("INSERT INTO products VALUES (1, 'product_secret')", []).expect("Failed to insert");
+
+        drop(conn);
+
+        // Exclude 'secret' only from users table
+        let options = ConvertOptions {
+            exclude_columns: Some(vec!["users.secret".to_string()]),
+            ..Default::default()
+        };
+
+        let stats = convert(&db_path, &xlsx_path, &options)
+            .expect("Failed to convert database");
+
+        assert_eq!(stats.tables_exported, 2);
+
+        let mut workbook: Xlsx<_> = open_workbook(&xlsx_path).expect("Failed to open xlsx");
+
+        // Users should not have 'secret'
+        let users_range = workbook.worksheet_range("users").expect("Failed to get users sheet");
+        let headers: Vec<String> = users_range.rows().next().unwrap()
+            .iter().filter_map(|c| c.get_string().map(String::from)).collect();
+        assert_eq!(headers, vec!["id"]);
+
+        // Products should still have 'secret'
+        let products_range = workbook.worksheet_range("products").expect("Failed to get products sheet");
+        let headers: Vec<String> = products_range.rows().next().unwrap()
+            .iter().filter_map(|c| c.get_string().map(String::from)).collect();
+        assert_eq!(headers, vec!["id", "secret"]);
     }
 }

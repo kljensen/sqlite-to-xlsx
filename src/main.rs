@@ -23,6 +23,11 @@ pub struct Args {
     #[arg(short, long, value_delimiter = ',')]
     pub exclude: Option<Vec<String>>,
 
+    /// Exclude columns from export (comma-separated)
+    /// Use 'column' for all tables, 'table.column' for specific table
+    #[arg(long, value_delimiter = ',')]
+    pub exclude_columns: Option<Vec<String>>,
+
     /// BLOB handling mode
     #[arg(long, default_value = "placeholder", value_parser = parse_blob_handling)]
     pub blob_mode: BlobHandling,
@@ -91,6 +96,7 @@ fn main() {
     let options = ConvertOptions {
         tables: args.tables.clone(),
         exclude: args.exclude,
+        exclude_columns: args.exclude_columns,
         blob_handling: args.blob_mode,
         write_headers: !args.no_headers,
         quiet: args.quiet,
