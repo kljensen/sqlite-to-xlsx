@@ -2,6 +2,22 @@
 
 set dotenv-load
 
+# List available commands
+default:
+    @just --list
+
+# Build debug binary
+build:
+    cargo build
+
+# Run tests
+test:
+    cargo test
+
+# Build release binary
+build-release:
+    cargo build --release
+
 # Build the development Docker image
 devbuild:
     docker build -f Dockerfile.dev -t sqlite-to-xlsx-dev .
