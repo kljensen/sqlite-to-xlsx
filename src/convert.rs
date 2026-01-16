@@ -219,6 +219,32 @@ fn base64_encode(bytes: &[u8]) -> String {
     BASE64_STANDARD.encode(bytes)
 }
 
+/// Calculates the display width (character count) of a SQLite value
+fn value_display_width(value: &Value, blob_handling: BlobHandling) -> usize {
+    match value {
+        Value::Null => 0,
+        Value::Integer(i) => i.to_string().chars().count(),
+        Value::Real(f) => {
+            if f.is_nan() {
+                3 // "NaN"
+            } else if f.is_infinite() {
+                if f.is_sign_positive() { 8 } else { 9 } // "Infinity" or "-Infinity"
+            } else {
+                f.to_string().chars().count()
+            }
+        }
+        Value::Text(s) => s.chars().count(),
+        Value::Blob(b) => {
+            match blob_handling {
+                BlobHandling::Placeholder => format!("[BLOB: {} bytes]", b.len()).chars().count(),
+                BlobHandling::Hex => b.len() * 2 + 2, // "0x" + 2 chars per byte
+                BlobHandling::Base64 => base64_encode(b).chars().count(),
+                BlobHandling::Skip => 0,
+            }
+        }
+    }
+}
+
 /// Configuration options for the conversion process
 #[derive(Debug, Clone)]
 pub struct ConvertOptions {
@@ -341,12 +367,18 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         let worksheet = workbook.add_worksheet().set_name(&sheet_name)
             .map_err(|e| anyhow::anyhow!("Failed to create sheet '{}': {}", sheet_name, e))?;
 
+        // Track column widths for auto-fit
+        let num_columns = table_info.columns.len();
+        let mut column_widths: Vec<usize> = vec![0; num_columns];
+
         // c. Write column headers (row 0) with bold format
         if options.write_headers {
             let bold_format = Format::new().set_bold();
             for (col, column) in table_info.columns.iter().enumerate() {
                 worksheet.write_string_with_format(0, col as u16, &column.name, &bold_format)
                     .map_err(|e| anyhow::anyhow!("Failed to write header for '{}': {}", column.name, e))?;
+                // Track header width
+                column_widths[col] = column.name.chars().count();
             }
         }
 
@@ -381,6 +413,9 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
                 let value: Value = row.get(col_idx)?;
                 write_cell(worksheet, row_idx, col_idx as u16, &value, options.blob_handling)
                     .map_err(|e| anyhow::anyhow!("Failed to write cell at row {}, col {}: {}", row_idx, col_idx, e))?;
+                // Update column width
+                let width = value_display_width(&value, options.blob_handling);
+                column_widths[col_idx] = column_widths[col_idx].max(width);
             }
             row_count += 1;
 
@@ -388,6 +423,14 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
             if let Some(ref pb) = progress {
                 pb.inc(1);
             }
+        }
+
+        // Set column widths (auto-fit)
+        for (col, &width) in column_widths.iter().enumerate() {
+            // Formula: min(50, max(8, chars * 1.1))
+            let col_width = (50.0_f64).min((8.0_f64).max(width as f64 * 1.1));
+            worksheet.set_column_width(col as u16, col_width)
+                .map_err(|e| anyhow::anyhow!("Failed to set column width for column {}: {}", col, e))?;
         }
 
         // Finish progress bar
@@ -413,9 +456,16 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
         let worksheet = workbook.add_worksheet().set_name(&sanitized_name)
             .map_err(|e| anyhow::anyhow!("Failed to create sheet '{}': {}", sanitized_name, e))?;
 
-        // Execute query and write to sheet
-        let query_rows = query_to_sheet(&conn, query, &sanitized_name, worksheet, options)
+        // Execute query and write to sheet, get column widths
+        let (query_rows, column_widths) = query_to_sheet(&conn, query, &sanitized_name, worksheet, options)
             .with_context(|| format!("Failed to execute query for sheet '{}': {}", sanitized_name, query))?;
+
+        // Set column widths (auto-fit)
+        for (col, &width) in column_widths.iter().enumerate() {
+            let col_width = (50.0_f64).min((8.0_f64).max(width as f64 * 1.1));
+            worksheet.set_column_width(col as u16, col_width)
+                .map_err(|e| anyhow::anyhow!("Failed to set column width for column {}: {}", col, e))?;
+        }
 
         total_rows += query_rows;
 
@@ -456,7 +506,7 @@ pub fn convert(input_path: &Path, output_path: &Path, options: &ConvertOptions) 
 /// * `options` - Conversion options
 ///
 /// # Returns
-/// Number of rows written
+/// A tuple of (number of rows written, column widths for auto-fit)
 ///
 /// # Errors
 /// Returns an error if:
@@ -469,13 +519,16 @@ pub fn query_to_sheet(
     sheet_name: &str,
     worksheet: &mut Worksheet,
     options: &ConvertOptions,
-) -> Result<usize> {
+) -> Result<(usize, Vec<usize>)> {
     // Prepare and execute the query
     let mut stmt = conn.prepare(query)
         .with_context(|| format!("Query failed for sheet '{}': {}", sheet_name, query))?;
 
     let column_count = stmt.column_count();
     let mut row_count: usize = 0;
+
+    // Track column widths for auto-fit
+    let mut column_widths: Vec<usize> = vec![0; column_count];
 
     // Write column headers if requested
     if options.write_headers {
@@ -485,6 +538,8 @@ pub fn query_to_sheet(
                 .unwrap_or("Column");
             worksheet.write_string_with_format(0, col as u16, column_name, &bold_format)
                 .map_err(|e| anyhow::anyhow!("Failed to write header for column {}: {}", col, e))?;
+            // Track header width
+            column_widths[col] = column_name.chars().count();
         }
     }
 
@@ -499,11 +554,14 @@ pub fn query_to_sheet(
             let value: Value = row.get(col_idx)?;
             write_cell(worksheet, row_idx, col_idx as u16, &value, options.blob_handling)
                 .map_err(|e| anyhow::anyhow!("Failed to write cell at row {}, col {}: {}", row_idx, col_idx, e))?;
+            // Update column width
+            let width = value_display_width(&value, options.blob_handling);
+            column_widths[col_idx] = column_widths[col_idx].max(width);
         }
         row_count += 1;
     }
 
-    Ok(row_count)
+    Ok((row_count, column_widths))
 }
 
 #[cfg(test)]
